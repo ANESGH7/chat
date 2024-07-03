@@ -1,0 +1,75 @@
+<!-- index.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WebSocket Chat</title>
+</head>
+<body>
+  <div id="roomControls">
+    <input type="text" id="roomNameInput" placeholder="Enter room name">
+    <button onclick="createRoom()">Create Room</button>
+    <button onclick="joinRoom()">Join Room</button>
+  </div>
+  <div id="chatArea" style="margin-top: 20px;">
+    <div id="chatOutput"></div>
+    <input type="text" id="messageInput" placeholder="Type your message...">
+    <button onclick="sendMessage()">Send</button>
+  </div>
+
+  <script>
+    const socket = new WebSocket('ws://localhost:8080');
+    let currentRoom = '';
+
+    socket.onmessage = function(event) {
+      const message = JSON.parse(event.data);
+      if (message.type === 'message') {
+        const chatOutput = document.getElementById('chatOutput');
+        chatOutput.innerHTML += `<p>${message.text}</p>`;
+      } else if (message.type === 'error') {
+        alert(message.message); // Display error messages to the user
+      }
+    };
+
+    function createRoom() {
+      const roomNameInput = document.getElementById('roomNameInput');
+      const roomName = roomNameInput.value.trim();
+      if (roomName !== '') {
+        socket.send(JSON.stringify({ type: 'create', roomName: roomName }));
+        roomNameInput.value = '';
+        setCurrentRoom(roomName);
+      } else {
+        alert('Please enter a valid room name');
+      }
+    }
+
+    function joinRoom() {
+      const roomNameInput = document.getElementById('roomNameInput');
+      const roomName = roomNameInput.value.trim();
+      if (roomName !== '') {
+        socket.send(JSON.stringify({ type: 'join', roomName: roomName }));
+        roomNameInput.value = '';
+        setCurrentRoom(roomName);
+      } else {
+        alert('Please enter a valid room name');
+      }
+    }
+
+    function sendMessage() {
+      const messageInput = document.getElementById('messageInput');
+      const message = messageInput.value.trim();
+      if (message !== '' && currentRoom !== '') {
+        socket.send(JSON.stringify({ type: 'message', roomName: currentRoom, text: message }));
+        messageInput.value = '';
+      } else {
+        alert('Please enter a message or select a room');
+      }
+    }
+
+    function setCurrentRoom(roomName) {
+      currentRoom = roomName;
+    }
+  </script>
+</body>
+</html>
