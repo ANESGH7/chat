@@ -1,11 +1,11 @@
+// server.js
 const WebSocket = require('ws');
+
 const wss = new WebSocket.Server({ port: 8080 });
 const rooms = new Map();
-let nextClientId = 1; // Counter for assigning client IDs
 
 wss.on('connection', function connection(ws) {
-  ws.clientId = nextClientId++; // Assign a unique client ID
-  console.log(`Client ${ws.clientId} connected`);
+  console.log('A new client connected');
 
   ws.on('message', function incoming(message) {
     try {
@@ -17,7 +17,7 @@ wss.on('connection', function connection(ws) {
   });
 
   ws.on('close', function () {
-    console.log(`Client ${ws.clientId} disconnected`);
+    console.log('Client disconnected');
     leaveRoom(ws);
   });
 });
@@ -48,28 +48,8 @@ function createRoom(ws, roomName) {
 
 function joinRoom(ws, roomName) {
   if (rooms.has(roomName)) {
-    const clients = rooms.get(roomName);
-
-    // Check if the client is already in the room
-    if (clients.has(ws)) {
-      console.log(`Client ${ws.clientId} is already in room "${roomName}"`);
-      return;
-    }
-
-    // Notify existing clients in the room about the new client
-    clients.forEach(client => {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(JSON.stringify({ type: 'info', message: `Client ${ws.clientId} has joined the room` }));
-      }
-    });
-
-    // Add the new client to the room
-    clients.add(ws);
-    console.log(`Client ${ws.clientId} joined room "${roomName}"`);
-
-    // Send a welcome message with client ID to the newly joined client
-    ws.send(JSON.stringify({ type: 'info', message: 'hi i am new', clientId: ws.clientId }));
-
+    rooms.get(roomName).add(ws);
+    console.log(`Client joined room "${roomName}"`);
   } else {
     console.error(`Room "${roomName}" does not exist`);
     ws.send(JSON.stringify({ type: 'error', message: `Room "${roomName}" does not exist` }));
@@ -80,7 +60,7 @@ function leaveRoom(ws) {
   rooms.forEach((clients, roomName) => {
     if (clients.has(ws)) {
       clients.delete(ws);
-      console.log(`Client ${ws.clientId} left room`);
+      console.log('Client left room');
       if (clients.size === 0) {
         rooms.delete(roomName);
         console.log(`Room "${roomName}" deleted`);
@@ -100,18 +80,5 @@ function sendMessage(senderWs, roomName, message) {
   } else {
     console.error(`Room "${roomName}" does not exist`);
     senderWs.send(JSON.stringify({ type: 'error', message: `Room "${roomName}" does not exist` }));
-  }
-}
-
-function sendMessageToRoom(roomName, messageObj) {
-  if (rooms.has(roomName)) {
-    const clients = rooms.get(roomName);
-    clients.forEach(client => {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(JSON.stringify(messageObj));
-      }
-    });
-  } else {
-    console.error(`Room "${roomName}" does not exist`);
   }
 }
