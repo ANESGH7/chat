@@ -50,12 +50,21 @@ function joinRoom(ws, roomName) {
   if (rooms.has(roomName)) {
     rooms.get(roomName).add(ws);
     console.log(`Client joined room "${roomName}"`);
-    ws.send(JSON.stringify({ message: `Client joined room` }));
+
+    // Send a welcome message to the newly joined client
+    ws.send(JSON.stringify({ type: 'info', message: 'hi i am new' }));
+
+    // Notify other clients in the room about the new client
+    sendMessageToRoom(roomName, {
+      type: 'info',
+      message: 'A new client has joined the room'
+    });
   } else {
     console.error(`Room "${roomName}" does not exist`);
     ws.send(JSON.stringify({ type: 'error', message: `Room "${roomName}" does not exist` }));
   }
 }
+
 
 function leaveRoom(ws) {
   rooms.forEach((clients, roomName) => {
