@@ -51,7 +51,7 @@ function joinRoom(ws, roomName) {
     rooms.get(roomName).add(ws);
     console.log(`Client joined room "${roomName}"`);
   } else {
-    console.error(`Room "${roomName}" does not exist`);
+    console.error(`Room "${roomName}" does not exist :`);
     ws.send(JSON.stringify({ type: 'error', message: `Room "${roomName}" does not exist` }));
   }
 }
