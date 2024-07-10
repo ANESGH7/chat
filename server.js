@@ -48,17 +48,28 @@ function createRoom(ws, roomName) {
 
 function joinRoom(ws, roomName) {
   if (rooms.has(roomName)) {
-    rooms.get(roomName).add(ws);
+    const clients = rooms.get(roomName);
+
+    // Check if the client is already in the room
+    if (clients.has(ws)) {
+      console.log(`Client ${ws.clientId} is already in room "${roomName}"`);
+      return;
+    }
+
+    // Notify existing clients in the room about the new client
+    clients.forEach(client => {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(JSON.stringify({ type: 'info', message: `Client ${ws.clientId} has joined the room` }));
+      }
+    });
+
+    // Add the new client to the room
+    clients.add(ws);
     console.log(`Client ${ws.clientId} joined room "${roomName}"`);
 
     // Send a welcome message with client ID to the newly joined client
     ws.send(JSON.stringify({ type: 'info', message: 'hi i am new', clientId: ws.clientId }));
 
-    // Notify other clients in the room about the new client
-    sendMessageToRoom(roomName, {
-      type: 'info',
-      message: `Client ${ws.clientId} has joined the room`
-    });
   } else {
     console.error(`Room "${roomName}" does not exist`);
     ws.send(JSON.stringify({ type: 'error', message: `Room "${roomName}" does not exist` }));
