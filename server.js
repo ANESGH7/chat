@@ -49,7 +49,7 @@ function createRoom(ws, roomName) {
 function joinRoom(ws, roomName) {
   if (rooms.has(roomName)) {
     rooms.get(roomName).add(ws);
-    console.log(`Client joined room "${roomName}"`);
+    console.log(`Client joined room : "${roomName}"`);
   } else {
     console.error(`Room "${roomName}" does not exist :`);
     ws.send(JSON.stringify({ type: 'error', message: `Room "${roomName}" does not exist` }));
