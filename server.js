@@ -1,11 +1,12 @@
+// server.js
 const WebSocket = require('ws');
-const { v4: uuidv4 } = require('uuid'); // Using UUID for unique client IDs
 
 const wss = new WebSocket.Server({ port: 8080 });
 const rooms = new Map();
 
 wss.on('connection', function connection(ws) {
   console.log('A new client connected');
+  ws.clientId = getClientId(ws);
 
   ws.on('message', function incoming(message) {
     try {
@@ -41,31 +42,24 @@ function handleIncomingMessage(ws, message) {
 function createRoom(ws, roomName) {
   if (!rooms.has(roomName)) {
     rooms.set(roomName, new Set());
-    console.log(`Room "${roomName}" created`);
   }
-  joinRoom(ws, roomName);
+  rooms.get(roomName).add(ws);
+  console.log(`Room "${roomName}" created`);
 }
 
 function joinRoom(ws, roomName) {
   if (rooms.has(roomName)) {
+    rooms.get(roomName).add(ws);
+
+    // Notify all clients in the room about the new client
     const clients = rooms.get(roomName);
-    clients.add(ws);
-    
-    // Generate a unique ID for the new client
-    const newClientId = uuidv4();
-    ws.id = newClientId;
-
-    // Send the new client their ID
-    ws.send(JSON.stringify({ type: 'clientId', id: newClientId }));
-
-    // Notify all other clients in the room about the new client
     clients.forEach(client => {
-      if (client !== ws && client.readyState === WebSocket.OPEN) {
-        client.send(JSON.stringify({ type: 'newClient', id: newClientId }));
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(JSON.stringify({ type: 'message', text: `${ws.clientId}` }));
       }
     });
 
-    console.log(`Client joined room: "${roomName}" with ID: ${newClientId}`);
+    console.log(`Client joined room: "${roomName}"`);
   } else {
     console.error(`Room "${roomName}" does not exist`);
     ws.send(JSON.stringify({ type: 'error', message: `Room "${roomName}" does not exist` }));
@@ -77,16 +71,18 @@ function leaveRoom(ws) {
     if (clients.has(ws)) {
       clients.delete(ws);
       console.log('Client left room');
+
+      // Notify remaining clients in the room
+      clients.forEach(client => {
+        if (client.readyState === WebSocket.OPEN) {
+          client.send(JSON.stringify({ type: 'message', text: `${ws.clientId} left the room` }));
+        }
+      });
+
+      // If room is empty, delete it
       if (clients.size === 0) {
         rooms.delete(roomName);
         console.log(`Room "${roomName}" deleted`);
-      } else {
-        // Notify remaining clients about the client leaving
-        clients.forEach(client => {
-          if (client.readyState === WebSocket.OPEN) {
-            client.send(JSON.stringify({ type: 'clientLeft', id: ws.id }));
-          }
-        });
       }
     }
   });
@@ -104,4 +100,9 @@ function sendMessage(senderWs, roomName, message) {
     console.error(`Room "${roomName}" does not exist`);
     senderWs.send(JSON.stringify({ type: 'error', message: `Room "${roomName}" does not exist` }));
   }
+}
+
+function getClientId(ws) {
+  // Generate a unique identifier for the client
+  return `${ws._socket.remoteAddress}:${ws._socket.remotePort}`;
 }
