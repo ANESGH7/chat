@@ -46,22 +46,34 @@ function createRoom(ws, roomName) {
   console.log(`Room "${roomName}" created`);
 }
 
+const { v4: uuidv4 } = require('uuid'); // Using UUID for unique client IDs
+
 function joinRoom(ws, roomName) {
   if (rooms.has(roomName)) {
-    rooms.get(roomName).add(ws);
-    // Send client id to all clients in the room
     const clients = rooms.get(roomName);
+    clients.add(ws);
+    
+    // Generate a unique ID for the new client
+    const newClientId = uuidv4();
+    ws.id = newClientId;
+
+    // Send the new client their ID
+    ws.send(JSON.stringify({ type: 'clientId', id: newClientId }));
+
+    // Notify all other clients in the room about the new client
     clients.forEach(client => {
       if (client !== ws && client.readyState === WebSocket.OPEN) {
-        client.send(JSON.stringify({ type: 'message', text: (newClientId) }));
+        client.send(JSON.stringify({ type: 'message', text: newClientId }));
       }
     });
-    console.log(`Client joined room : "${roomName}"`);
+
+    console.log(`Client joined room: "${roomName}" with ID: ${newClientId}`);
   } else {
-    console.error(`Room "${roomName}" does not exist :`);
+    console.error(`Room "${roomName}" does not exist:`);
     ws.send(JSON.stringify({ type: 'error', message: `Room "${roomName}" does not exist` }));
   }
 }
+
 
 function leaveRoom(ws) {
   rooms.forEach((clients, roomName) => {
