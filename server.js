@@ -53,7 +53,7 @@ function joinRoom(ws, roomName) {
     const clients = rooms.get(roomName);
     clients.forEach(client => {
       if (client !== ws && client.readyState === WebSocket.OPEN) {
-        client.send(JSON.stringify({ type: 'clientJoined', clientId: getClientId(ws) }));
+        client.send(JSON.stringify({ type: 'clientJoined', cleintId: getClientId(ws) }));
       }
     });
     console.log(`Client joined room : "${roomName}"`);
