@@ -93,7 +93,7 @@ function sendMessage(senderWs, roomName, message) {
     const clients = rooms.get(roomName);
     clients.forEach(client => {
       if (client !== senderWs && client.readyState === WebSocket.OPEN) {
-        client.send(JSON.stringify({ type: 'message', text: message ` / ${ws.clientId} left the room` }));
+        client.send(JSON.stringify({ type: 'message', text: message ,` / ${ws.clientId}' }));
       }
     });
   } else {
