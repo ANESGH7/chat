@@ -49,6 +49,13 @@ function createRoom(ws, roomName) {
 function joinRoom(ws, roomName) {
   if (rooms.has(roomName)) {
     rooms.get(roomName).add(ws);
+    // Send client id to all clients in the room
+    const clients = rooms.get(roomName);
+    clients.forEach(client => {
+      if (client !== ws && client.readyState === WebSocket.OPEN) {
+        client.send(JSON.stringify({ type: 'clientJoined', clientId: getClientId(ws) }));
+      }
+    });
     console.log(`Client joined room : "${roomName}"`);
   } else {
     console.error(`Room "${roomName}" does not exist :`);
@@ -81,4 +88,9 @@ function sendMessage(senderWs, roomName, message) {
     console.error(`Room "${roomName}" does not exist`);
     senderWs.send(JSON.stringify({ type: 'error', message: `Room "${roomName}" does not exist` }));
   }
+}
+
+function getClientId(ws) {
+  // Generate a unique identifier for the client
+  return ws._socket.remoteAddress + ":" + ws._socket.remotePort;
 }
