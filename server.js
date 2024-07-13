@@ -1,4 +1,3 @@
-// server.js
 const WebSocket = require('ws');
 
 const wss = new WebSocket.Server({ port: 8080 });
@@ -55,7 +54,7 @@ function joinRoom(ws, roomName) {
     const clients = rooms.get(roomName);
     clients.forEach(client => {
       if (client.readyState === WebSocket.OPEN) {
-        client.send(JSON.stringify({ type: 'message', text: `${ws.clientId}` }));
+        client.send(JSON.stringify({ type: 'message', text: `${ws.clientId} joined the room` }));
       }
     });
 
@@ -92,8 +91,8 @@ function sendMessage(senderWs, roomName, message) {
   if (roomName && rooms.has(roomName)) {
     const clients = rooms.get(roomName);
     clients.forEach(client => {
-      if (client !== senderWs && client.readyState === WebSocket.OPEN) {
-        client.send(JSON.stringify({ type: 'message', text: `${message}-${senderWs.clientId}` }));
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(JSON.stringify({ type: 'message', text: `${message} - ${senderWs.clientId}` }));
       }
     });
   } else {
