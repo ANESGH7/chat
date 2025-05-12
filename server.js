@@ -1,5 +1,5 @@
+// Node.js WebSocket server with support for rooms and image messages
 const WebSocket = require('ws');
-
 const wss = new WebSocket.Server({ port: 8080 });
 const rooms = new Map();
 
@@ -33,8 +33,22 @@ function handleIncomingMessage(ws, message) {
     case 'message':
       sendMessage(ws, message.roomName, message.text);
       break;
+    case 'image':
+      sendImage(ws, message.roomName, message.data);
+      break;
     default:
       console.error('Unsupported message type:', message.type);
+  }
+}
+
+function sendImage(senderWs, roomName, imageData) {
+  if (roomName && rooms.has(roomName)) {
+    const clients = rooms.get(roomName);
+    clients.forEach(client => {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(JSON.stringify({ type: 'image', data: imageData }));
+      }
+    });
   }
 }
 
@@ -49,42 +63,10 @@ function createRoom(ws, roomName) {
 function joinRoom(ws, roomName) {
   if (rooms.has(roomName)) {
     rooms.get(roomName).add(ws);
-
-    // Notify all clients in the room about the new client
-    const clients = rooms.get(roomName);
-    clients.forEach(client => {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(JSON.stringify({ type: 'message', text: `${ws.clientId}` }));
-      }
-    });
-
     console.log(`Client joined room: "${roomName}"`);
   } else {
-    console.error(`Room "${roomName}" does not exist`);
     ws.send(JSON.stringify({ type: 'error', message: `Room "${roomName}" does not exist` }));
   }
-}
-
-function leaveRoom(ws) {
-  rooms.forEach((clients, roomName) => {
-    if (clients.has(ws)) {
-      clients.delete(ws);
-      console.log('Client left room');
-
-      // Notify remaining clients in the room
-      clients.forEach(client => {
-        if (client.readyState === WebSocket.OPEN) {
-          client.send(JSON.stringify({ type: 'message', text: `${ws.clientId}` }));
-        }
-      });
-
-      // If room is empty, delete it
-      if (clients.size === 0) {
-        rooms.delete(roomName);
-        console.log(`Room "${roomName}" deleted`);
-      }
-    }
-  });
 }
 
 function sendMessage(senderWs, roomName, message) {
@@ -96,12 +78,22 @@ function sendMessage(senderWs, roomName, message) {
       }
     });
   } else {
-    console.error(`Room "${roomName}" does not exist`);
     senderWs.send(JSON.stringify({ type: 'error', message: `Room "${roomName}" does not exist` }));
   }
 }
 
+function leaveRoom(ws) {
+  rooms.forEach((clients, roomName) => {
+    if (clients.has(ws)) {
+      clients.delete(ws);
+      if (clients.size === 0) {
+        rooms.delete(roomName);
+        console.log(`Room "${roomName}" deleted`);
+      }
+    }
+  });
+}
+
 function getClientId(ws) {
-  // Generate a unique identifier for the client
   return `${ws._socket.remoteAddress}:${ws._socket.remotePort}`;
 }
