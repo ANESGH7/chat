@@ -1,24 +1,36 @@
-// Node.js WebSocket server with support for rooms and image messages
 const WebSocket = require('ws');
 const wss = new WebSocket.Server({ port: 8080 });
 const rooms = new Map();
+const clientStates = new Map(); // Track metadata state per client
 
 wss.on('connection', function connection(ws) {
   console.log('A new client connected');
   ws.clientId = getClientId(ws);
 
-  ws.on('message', function incoming(message) {
+  ws.on('message', function incoming(data, isBinary) {
+    if (isBinary) {
+      const meta = clientStates.get(ws);
+      if (meta?.type === 'binary-image') {
+        sendImageBinary(ws, meta.roomName, data);
+        clientStates.delete(ws);
+      } else {
+        console.warn('Received unexpected binary data');
+      }
+      return;
+    }
+
     try {
-      const data = JSON.parse(message);
-      handleIncomingMessage(ws, data);
+      const message = JSON.parse(data.toString());
+      handleIncomingMessage(ws, message);
     } catch (error) {
-      console.error('Invalid JSON received:', message);
+      console.error('Invalid JSON received:', data.toString());
     }
   });
 
-  ws.on('close', function () {
+  ws.on('close', () => {
     console.log('Client disconnected');
     leaveRoom(ws);
+    clientStates.delete(ws);
   });
 });
 
@@ -34,21 +46,35 @@ function handleIncomingMessage(ws, message) {
       sendMessage(ws, message.roomName, message.text);
       break;
     case 'image':
-      sendImage(ws, message.roomName, message.data);
+      sendImage(ws, message.roomName, message.data); // base64 image
+      break;
+    case 'binary-image':
+      clientStates.set(ws, { type: 'binary-image', roomName: message.roomName });
       break;
     default:
       console.error('Unsupported message type:', message.type);
   }
 }
 
-function sendImage(senderWs, roomName, imageData) {
+function sendImage(ws, roomName, imageData) {
   if (roomName && rooms.has(roomName)) {
     const clients = rooms.get(roomName);
-    clients.forEach(client => {
+    for (const client of clients) {
       if (client.readyState === WebSocket.OPEN) {
         client.send(JSON.stringify({ type: 'image', data: imageData }));
       }
-    });
+    }
+  }
+}
+
+function sendImageBinary(ws, roomName, binaryData) {
+  if (roomName && rooms.has(roomName)) {
+    const clients = rooms.get(roomName);
+    for (const client of clients) {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(binaryData, { binary: true });
+      }
+    }
   }
 }
 
@@ -69,16 +95,16 @@ function joinRoom(ws, roomName) {
   }
 }
 
-function sendMessage(senderWs, roomName, message) {
+function sendMessage(ws, roomName, text) {
   if (roomName && rooms.has(roomName)) {
     const clients = rooms.get(roomName);
-    clients.forEach(client => {
+    for (const client of clients) {
       if (client.readyState === WebSocket.OPEN) {
-        client.send(JSON.stringify({ type: 'message', text: `${message} & ${senderWs.clientId}` }));
+        client.send(JSON.stringify({ type: 'message', text: `${text} & ${ws.clientId}` }));
       }
-    });
+    }
   } else {
-    senderWs.send(JSON.stringify({ type: 'error', message: `Room "${roomName}" does not exist` }));
+    ws.send(JSON.stringify({ type: 'error', message: `Room "${roomName}" does not exist` }));
   }
 }
 
