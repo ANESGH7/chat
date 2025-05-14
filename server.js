@@ -1,7 +1,8 @@
+// server.js
 const WebSocket = require('ws');
 const wss = new WebSocket.Server({ port: 8080 });
 const rooms = new Map();
-const clientStates = new Map(); // Track metadata state per client
+const clientStates = new Map();
 
 wss.on('connection', function connection(ws) {
   console.log('A new client connected');
@@ -45,25 +46,11 @@ function handleIncomingMessage(ws, message) {
     case 'message':
       sendMessage(ws, message.roomName, message.text);
       break;
-    case 'image':
-      sendImage(ws, message.roomName, message.data); // base64 image
-      break;
     case 'binary-image':
       clientStates.set(ws, { type: 'binary-image', roomName: message.roomName });
       break;
     default:
       console.error('Unsupported message type:', message.type);
-  }
-}
-
-function sendImage(ws, roomName, imageData) {
-  if (roomName && rooms.has(roomName)) {
-    const clients = rooms.get(roomName);
-    for (const client of clients) {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(JSON.stringify({ type: 'image', data: imageData }));
-      }
-    }
   }
 }
 
@@ -81,18 +68,19 @@ function sendImageBinary(ws, roomName, binaryData) {
 function createRoom(ws, roomName) {
   if (!rooms.has(roomName)) {
     rooms.set(roomName, new Set());
+    console.log(`Room "${roomName}" created`);
   }
   rooms.get(roomName).add(ws);
-  console.log(Room "${roomName}" created);
 }
 
 function joinRoom(ws, roomName) {
-  if (rooms.has(roomName)) {
-    rooms.get(roomName).add(ws);
-    console.log(Client joined room: "${roomName}");
-  } else {
-    ws.send(JSON.stringify({ type: 'error', message: Room "${roomName}" does not exist }));
+  if (!rooms.has(roomName)) {
+    ws.send(JSON.stringify({ type: 'error', message: `Room "${roomName}" does not exist` }));
+    return;
   }
+  leaveRoom(ws);
+  rooms.get(roomName).add(ws);
+  console.log(`Client joined room: "${roomName}"`);
 }
 
 function sendMessage(ws, roomName, text) {
@@ -100,11 +88,11 @@ function sendMessage(ws, roomName, text) {
     const clients = rooms.get(roomName);
     for (const client of clients) {
       if (client.readyState === WebSocket.OPEN) {
-        client.send(JSON.stringify({ type: 'message', text: ${text} & ${ws.clientId} }));
+        client.send(JSON.stringify({ type: 'message', text: `${text} & ${ws.clientId}` }));
       }
     }
   } else {
-    ws.send(JSON.stringify({ type: 'error', message: Room "${roomName}" does not exist }));
+    ws.send(JSON.stringify({ type: 'error', message: `Room "${roomName}" does not exist` }));
   }
 }
 
@@ -114,12 +102,12 @@ function leaveRoom(ws) {
       clients.delete(ws);
       if (clients.size === 0) {
         rooms.delete(roomName);
-        console.log(Room "${roomName}" deleted);
+        console.log(`Room "${roomName}" deleted`);
       }
     }
   });
 }
 
 function getClientId(ws) {
-  return ${ws._socket.remoteAddress}:${ws._socket.remotePort};
+  return `${ws._socket.remoteAddress}:${ws._socket.remotePort}`;
 }
