@@ -1,15 +1,15 @@
 {
   "name": "s1",
   "version": "1.0.0",
-  "main": "index.js",
+  "description": "WebSocket server with chat, GPS, and video streaming",
+  "main": "server.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node server.js"
   },
-  "keywords": [],
   "author": "",
   "license": "ISC",
-  "description": "",
   "dependencies": {
+    "uuid": "^9.0.1",
     "ws": "^8.18.0"
   }
 }
