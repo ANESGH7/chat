@@ -1,115 +1,131 @@
 const WebSocket = require('ws');
 const { v4: uuidv4 } = require('uuid');
 
-const wss = new WebSocket.Server({ port: process.env.PORT || 8080 });
+const PORT = process.env.PORT || 3000;
+const wss = new WebSocket.Server({ port: PORT });
 
-const rooms = new Map(); // Map<roomName, Set<client>>
-const clientInfo = new Map(); // Map<ws, { id, roomName }>
+const clients = new Map(); // Maps client IDs to WebSocket connections
+const rooms = new Map();   // Maps room names to Sets of client IDs
 
 wss.on('connection', (ws) => {
   const clientId = uuidv4();
-  clientInfo.set(ws, { id: clientId, roomName: null });
+  clients.set(clientId, ws);
+  ws.clientId = clientId;
+  ws.roomName = null;
 
-  ws.on('message', async (data) => {
-    try {
-      if (typeof data === 'string') {
-        const msg = JSON.parse(data);
-        const info = clientInfo.get(ws);
-
-        if (!msg.type) return;
-
-        switch (msg.type) {
-          case 'create':
-            createRoom(msg.roomName, ws);
-            break;
-
-          case 'join':
-            joinRoom(msg.roomName, ws);
-            break;
-
-          case 'message':
-            if (info.roomName && msg.text) {
-              broadcast(info.roomName, {
-                type: 'message',
-                text: `[${info.id.slice(0, 5)}] ${msg.text}`,
-              });
-            }
-            break;
-
-          case 'gps':
-            if (info.roomName && msg.lat && msg.lng) {
-              broadcast(info.roomName, {
-                type: 'gps',
-                lat: msg.lat,
-                lng: msg.lng,
-                senderId: info.id,
-              });
-            }
-            break;
-
-          case 'binary-image':
-            // placeholder: next message is the actual binary image
-            ws.expectingBinaryFor = msg.roomName;
-            break;
-
-          default:
-            ws.send(JSON.stringify({ type: 'error', message: 'Unknown type' }));
-        }
-
-      } else if (data instanceof Buffer && ws.expectingBinaryFor) {
-        const roomName = ws.expectingBinaryFor;
-        ws.expectingBinaryFor = null;
-
-        if (rooms.has(roomName)) {
-          for (const client of rooms.get(roomName)) {
-            if (client !== ws && client.readyState === WebSocket.OPEN) {
-              client.send(data);
-            }
-          }
-        }
+  ws.on('message', (data) => {
+    // Handle binary data (e.g., video frames)
+    if (Buffer.isBuffer(data)) {
+      if (ws.roomName) {
+        broadcastBinary(ws.roomName, data, ws.clientId);
       }
+      return;
+    }
+
+    // Handle text messages
+    let msg;
+    try {
+      msg = JSON.parse(data);
     } catch (err) {
-      ws.send(JSON.stringify({ type: 'error', message: 'Server error: ' + err.message }));
+      ws.send(JSON.stringify({ type: 'error', message: 'Invalid JSON' }));
+      return;
+    }
+
+    const { type, roomName, text, latitude, longitude } = msg;
+
+    switch (type) {
+      case 'create':
+        if (!roomName) {
+          ws.send(JSON.stringify({ type: 'error', message: 'Room name required' }));
+          return;
+        }
+        ws.roomName = roomName;
+        if (!rooms.has(roomName)) {
+          rooms.set(roomName, new Set());
+        }
+        rooms.get(roomName).add(clientId);
+        ws.send(JSON.stringify({ type: 'info', message: `Room '${roomName}' created` }));
+        break;
+
+      case 'join':
+        if (!roomName) {
+          ws.send(JSON.stringify({ type: 'error', message: 'Room name required' }));
+          return;
+        }
+        ws.roomName = roomName;
+        if (!rooms.has(roomName)) {
+          rooms.set(roomName, new Set());
+        }
+        rooms.get(roomName).add(clientId);
+        ws.send(JSON.stringify({ type: 'info', message: `Joined room '${roomName}'` }));
+        break;
+
+      case 'message':
+        if (!ws.roomName) {
+          ws.send(JSON.stringify({ type: 'error', message: 'Join a room first' }));
+          return;
+        }
+        broadcast(ws.roomName, {
+          type: 'message',
+          text: text,
+        });
+        break;
+
+      case 'gps':
+        if (!ws.roomName) {
+          ws.send(JSON.stringify({ type: 'error', message: 'Join a room first' }));
+          return;
+        }
+        broadcast(ws.roomName, {
+          type: 'gps',
+          clientId: clientId,
+          latitude: latitude,
+          longitude: longitude,
+        });
+        break;
+
+      case 'binary-image':
+        // Placeholder for handling binary image initiation if needed
+        break;
+
+      default:
+        ws.send(JSON.stringify({ type: 'error', message: 'Unknown message type' }));
     }
   });
 
   ws.on('close', () => {
-    const info = clientInfo.get(ws);
-    if (info?.roomName) {
-      rooms.get(info.roomName)?.delete(ws);
+    clients.delete(clientId);
+    if (ws.roomName && rooms.has(ws.roomName)) {
+      rooms.get(ws.roomName).delete(clientId);
+      if (rooms.get(ws.roomName).size === 0) {
+        rooms.delete(ws.roomName);
+      }
     }
-    clientInfo.delete(ws);
   });
 });
 
-function createRoom(roomName, ws) {
-  if (!roomName) return;
-  if (!rooms.has(roomName)) {
-    rooms.set(roomName, new Set());
-  }
-  rooms.get(roomName).add(ws);
-  clientInfo.get(ws).roomName = roomName;
-  ws.send(JSON.stringify({ type: 'message', text: `✅ Created room "${roomName}"` }));
+function broadcast(roomName, message) {
+  const room = rooms.get(roomName);
+  if (!room) return;
+  const msgString = JSON.stringify(message);
+  room.forEach((clientId) => {
+    const client = clients.get(clientId);
+    if (client && client.readyState === WebSocket.OPEN) {
+      client.send(msgString);
+    }
+  });
 }
 
-function joinRoom(roomName, ws) {
-  if (!roomName) return;
-  if (!rooms.has(roomName)) {
-    rooms.set(roomName, new Set());
-  }
-  rooms.get(roomName).add(ws);
-  clientInfo.get(ws).roomName = roomName;
-  ws.send(JSON.stringify({ type: 'message', text: `✅ Joined room "${roomName}"` }));
-}
-
-function broadcast(roomName, msg) {
-  if (!rooms.has(roomName)) return;
-  const data = JSON.stringify(msg);
-  for (const client of rooms.get(roomName)) {
-    if (client.readyState === WebSocket.OPEN) {
+function broadcastBinary(roomName, data, senderId) {
+  const room = rooms.get(roomName);
+  if (!room) return;
+  room.forEach((clientId) => {
+    if (clientId === senderId) return; // Skip sender
+    const client = clients.get(clientId);
+    if (client && client.readyState === WebSocket.OPEN) {
       client.send(data);
     }
-  }
+  });
 }
 
-console.log("✅ WebSocket server is running on port " + (process.env.PORT || 8080));
+console.log(`WebSocket server is running on port ${PORT}`);
