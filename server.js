@@ -1,77 +1,114 @@
 const WebSocket = require('ws');
-const fs = require('fs');
-const path = require('path');
 
 const wss = new WebSocket.Server({ port: 8080 });
-console.log("✅ Server listening on ws://localhost:8080");
 
-let videoCounter = 0;
-let audioCounter = 0;
-const rooms = new Map();
+const rooms = new Map();       // Map<string, Set<WebSocket>>
+const clientStates = new Map(); // Map<WebSocket, { type: string, roomName: string }>
 
-wss.on('connection', (ws) => {
-  console.log("🔌 Client connected.");
-  ws.room = null;
+wss.on('connection', function connection(ws) {
+  console.log('A new client connected');
+  ws.clientId = getClientId(ws);
 
-  ws.on('message', (data) => {
-    if (typeof data === 'string') {
-      try {
-        const msg = JSON.parse(data);
-
-        if (msg.type === 'create' || msg.type === 'join') {
-          const room = msg.roomName;
-          if (!rooms.has(room)) rooms.set(room, new Set());
-          rooms.get(room).add(ws);
-          ws.room = room;
-          console.log(`🏠 ${msg.type.toUpperCase()} room: ${room}`);
-        } else if (msg.type === 'message') {
-          if (!ws.room || !rooms.has(ws.room)) return;
-          const payload = JSON.stringify({ type: 'message', text: msg.text });
-          for (const client of rooms.get(ws.room)) {
-            if (client.readyState === WebSocket.OPEN) {
-              client.send(payload);
-            }
-          }
-        }
-      } catch (err) {
-        console.log("❌ Invalid JSON:", err);
-      }
-    } else if (Buffer.isBuffer(data)) {
-      const magicBytes = data.slice(0, 4).toString('hex');
-
-      if (!ws.room || !rooms.has(ws.room)) return;
-
-      // Save media (optional)
-      if (magicBytes.startsWith('ffd8')) {
-        const filePath = path.join(__dirname, `video_frame_${videoCounter++}.jpg`);
-        fs.writeFileSync(filePath, data);
-        console.log(`📸 Saved video frame: ${filePath}`);
-      } else if (magicBytes === '52494646') {
-        const filePath = path.join(__dirname, `audio_${audioCounter++}.wav`);
-        fs.writeFileSync(filePath, data);
-        console.log(`🎙️ Saved audio chunk: ${filePath}`);
+  ws.on('message', function incoming(data, isBinary) {
+    if (isBinary) {
+      const meta = clientStates.get(ws);
+      if (meta?.type === 'binary-image') {
+        sendImageBinary(ws, meta.roomName, data);
+        clientStates.delete(ws);
       } else {
-        const filePath = path.join(__dirname, `unknown_${Date.now()}`);
-        fs.writeFileSync(filePath, data);
-        console.log(`📦 Saved unknown binary: ${filePath}`);
+        console.warn('Received unexpected binary data');
       }
+      return;
+    }
 
-      // Broadcast to other clients in the same room
-      for (const client of rooms.get(ws.room)) {
-        if (client !== ws && client.readyState === WebSocket.OPEN) {
-          client.send(data);
-        }
-      }
+    try {
+      const message = JSON.parse(data.toString());
+      handleIncomingMessage(ws, message);
+    } catch (error) {
+      console.error('Invalid JSON received:', data.toString());
     }
   });
 
   ws.on('close', () => {
-    if (ws.room && rooms.has(ws.room)) {
-      rooms.get(ws.room).delete(ws);
-      if (rooms.get(ws.room).size === 0) {
-        rooms.delete(ws.room);
-      }
-    }
-    console.log("❎ Client disconnected.");
+    console.log('Client disconnected');
+    leaveRoom(ws);
+    clientStates.delete(ws);
   });
 });
+
+function handleIncomingMessage(ws, message) {
+  switch (message.type) {
+    case 'create':
+      createRoom(ws, message.roomName);
+      break;
+    case 'join':
+      joinRoom(ws, message.roomName);
+      break;
+    case 'message':
+      sendMessage(ws, message.roomName, message.text);
+      break;
+    case 'binary-image':
+      clientStates.set(ws, { type: 'binary-image', roomName: message.roomName });
+      break;
+    default:
+      console.error('Unsupported message type:', message.type);
+  }
+}
+
+function sendImageBinary(ws, roomName, binaryData) {
+  if (roomName && rooms.has(roomName)) {
+    const clients = rooms.get(roomName);
+    for (const client of clients) {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(binaryData, { binary: true });
+      }
+    }
+  }
+}
+
+function createRoom(ws, roomName) {
+  if (!rooms.has(roomName)) {
+    rooms.set(roomName, new Set());
+    console.log(`Room "${roomName}" created`);
+  }
+  rooms.get(roomName).add(ws);
+}
+
+function joinRoom(ws, roomName) {
+  if (!rooms.has(roomName)) {
+    ws.send(JSON.stringify({ type: 'error', message: `Room "${roomName}" does not exist` }));
+    return;
+  }
+  leaveRoom(ws);
+  rooms.get(roomName).add(ws);
+  console.log(`Client joined room: "${roomName}"`);
+}
+
+function sendMessage(ws, roomName, text) {
+  if (roomName && rooms.has(roomName)) {
+    const clients = rooms.get(roomName);
+    for (const client of clients) {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(JSON.stringify({ type: 'message', text: `${text} & ${ws.clientId}` }));
+      }
+    }
+  } else {
+    ws.send(JSON.stringify({ type: 'error', message: `Room "${roomName}" does not exist` }));
+  }
+}
+
+function leaveRoom(ws) {
+  rooms.forEach((clients, roomName) => {
+    if (clients.has(ws)) {
+      clients.delete(ws);
+      if (clients.size === 0) {
+        rooms.delete(roomName);
+        console.log(`Room "${roomName}" deleted`);
+      }
+    }
+  });
+}
+
+function getClientId(ws) {
+  return `${ws._socket.remoteAddress}:${ws._socket.remotePort}`;
+}
