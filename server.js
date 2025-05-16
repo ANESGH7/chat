@@ -2,9 +2,9 @@ const WebSocket = require('ws');
 const wss = new WebSocket.Server({ port: process.env.PORT || 3000 });
 
 const rooms = new Map(); // roomName -> Set of WebSocket clients
-const clientStates = new Map(); // WebSocket -> { type: 'binary-image' | 'binary-audio', roomName }
+const clientStates = new Map(); // WebSocket -> { type: 'binary-video' | 'binary-audio', roomName }
 
-function broadcast(roomName, message, sender) {
+function broadcastText(roomName, message, sender) {
   const clients = rooms.get(roomName);
   if (!clients) return;
 
@@ -15,18 +15,7 @@ function broadcast(roomName, message, sender) {
   }
 }
 
-function sendBinaryImage(sender, roomName, data) {
-  const clients = rooms.get(roomName);
-  if (!clients) return;
-
-  for (const client of clients) {
-    if (client.readyState === WebSocket.OPEN && client !== sender) {
-      client.send(data);
-    }
-  }
-}
-
-function sendBinaryAudio(sender, roomName, data) {
+function broadcastBinary(sender, roomName, data) {
   const clients = rooms.get(roomName);
   if (!clients) return;
 
@@ -42,14 +31,8 @@ wss.on('connection', (ws) => {
     if (isBinary) {
       const state = clientStates.get(ws);
       if (!state || !state.type || !state.roomName) return;
-
-      if (state.type === 'binary-image') {
-        sendBinaryImage(ws, state.roomName, message);
-      } else if (state.type === 'binary-audio') {
-        sendBinaryAudio(ws, state.roomName, message);
-      }
-
-      clientStates.delete(ws);
+      broadcastBinary(ws, state.roomName, message);
+      clientStates.delete(ws); // optional: treat each binary message separately
       return;
     }
 
@@ -65,16 +48,6 @@ wss.on('connection', (ws) => {
 
     switch (type) {
       case 'create':
-        if (!roomName) {
-          ws.send(JSON.stringify({ type: 'error', message: 'Room name required' }));
-          return;
-        }
-        if (!rooms.has(roomName)) {
-          rooms.set(roomName, new Set());
-        }
-        rooms.get(roomName).add(ws);
-        break;
-
       case 'join':
         if (!roomName) {
           ws.send(JSON.stringify({ type: 'error', message: 'Room name required' }));
@@ -91,10 +64,10 @@ wss.on('connection', (ws) => {
           ws.send(JSON.stringify({ type: 'error', message: 'Room name and message text required' }));
           return;
         }
-        broadcast(roomName, text, ws);
+        broadcastText(roomName, text, ws);
         break;
 
-      case 'binary-image':
+      case 'binary-video':
       case 'binary-audio':
         if (!roomName) {
           ws.send(JSON.stringify({ type: 'error', message: 'Room name required for binary data' }));
@@ -119,4 +92,4 @@ wss.on('connection', (ws) => {
   });
 });
 
-console.log("WebSocket server running on port 3000");
+console.log("✅ WebSocket server running on port 3000");
