@@ -19,9 +19,15 @@ function broadcastBinary(sender, roomName, data) {
   const clients = rooms.get(roomName);
   if (!clients) return;
 
+  const state = clientStates.get(sender);
+  if (!state) return;
+
+  const headerMsg = JSON.stringify({ type: state.type, roomName });
+
   for (const client of clients) {
     if (client.readyState === WebSocket.OPEN && client !== sender) {
-      client.send(data);
+      client.send(headerMsg);  // Send JSON header before binary data
+      client.send(data);       // Send binary data after header
     }
   }
 }
@@ -32,7 +38,7 @@ wss.on('connection', (ws) => {
       const state = clientStates.get(ws);
       if (!state || !state.type || !state.roomName) return;
       broadcastBinary(ws, state.roomName, message);
-      clientStates.delete(ws); // optional: treat each binary message separately
+      clientStates.delete(ws); // treat each binary message separately (reset state)
       return;
     }
 
