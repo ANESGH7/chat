@@ -2,7 +2,7 @@ const WebSocket = require('ws');
 const wss = new WebSocket.Server({ port: process.env.PORT || 3000 });
 
 const rooms = new Map(); // roomName -> Set of clients
-const clientStates = new Map(); // ws -> { roomName, streamType }
+const clientStates = new Map(); // ws -> { roomName, streamType, clientId }
 
 function broadcastText(roomName, message, sender) {
   const clients = rooms.get(roomName);
@@ -27,6 +27,9 @@ function broadcastBinary(roomName, data, sender) {
 }
 
 wss.on('connection', (ws) => {
+  // Assign random clientId for tracking
+  const clientId = Math.random().toString(36).substring(2, 10);
+
   ws.on('message', (message, isBinary) => {
     if (isBinary) {
       // Binary frame - forward to all clients in the room
@@ -48,6 +51,19 @@ wss.on('connection', (ws) => {
     const { type, roomName, text, streamType } = msg;
 
     switch (type) {
+      case 'create':
+        if (!roomName) {
+          ws.send(JSON.stringify({ type: 'error', message: 'roomName required' }));
+          return;
+        }
+        if (!rooms.has(roomName)) {
+          rooms.set(roomName, new Set());
+          ws.send(JSON.stringify({ type: 'created', roomName }));
+        } else {
+          ws.send(JSON.stringify({ type: 'error', message: 'Room already exists' }));
+        }
+        break;
+
       case 'join':
         if (!roomName) {
           ws.send(JSON.stringify({ type: 'error', message: 'roomName required' }));
@@ -55,7 +71,7 @@ wss.on('connection', (ws) => {
         }
         if (!rooms.has(roomName)) rooms.set(roomName, new Set());
         rooms.get(roomName).add(ws);
-        clientStates.set(ws, { roomName, streamType: null });
+        clientStates.set(ws, { roomName, streamType: null, clientId });
         ws.send(JSON.stringify({ type: 'joined', roomName }));
         break;
 
@@ -68,8 +84,10 @@ wss.on('connection', (ws) => {
           ws.send(JSON.stringify({ type: 'error', message: 'Join a room first' }));
           return;
         }
-        const state = clientStates.get(ws);
-        clientStates.set(ws, { ...state, streamType });
+        {
+          const state = clientStates.get(ws);
+          clientStates.set(ws, { ...state, streamType });
+        }
         break;
 
       case 'message':
