@@ -1,9 +1,8 @@
+// server.js
 const WebSocket = require('ws');
-
 const wss = new WebSocket.Server({ port: 8080 });
-
-const rooms = new Map();       // Map<string, Set<WebSocket>>
-const clientStates = new Map(); // Map<WebSocket, { type: string, roomName: string }>
+const rooms = new Map();
+const clientStates = new Map();
 
 wss.on('connection', function connection(ws) {
   console.log('A new client connected');
